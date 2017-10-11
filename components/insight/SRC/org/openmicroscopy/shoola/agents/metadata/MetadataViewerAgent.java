@@ -1,6 +1,6 @@
 /*
  *------------------------------------------------------------------------------
- *  Copyright (C) 2006-2016 University of Dundee. All rights reserved.
+ *  Copyright (C) 2006-2017 University of Dundee. All rights reserved.
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -131,7 +131,21 @@ public class MetadataViewerAgent
 		if (b == null) return false;
 		return b.booleanValue();
 	}
-	
+    
+    /**
+     * Returns <code>true</code> if the currently logged in user is a full
+     * administrator
+     * 
+     * @return See above.
+     */
+    public static boolean isFullAdministrator() {
+        Boolean b = (Boolean) registry.lookup(LookupNames.PRIV_FULL);
+        if (b == null)
+            b = Boolean.FALSE;
+
+        return isAdministrator() && b.booleanValue();
+    }
+    
 	/**
 	 * Returns the context for an administrator.
 	 * 
@@ -448,4 +462,31 @@ public class MetadataViewerAgent
         
     }
 
+    /**
+     * Returns <code>true</code> if the currently logged in user is allowed
+     * to edit groups, <code>false</code> otherwise.
+     * 
+     * @return See above.
+     */
+    public static boolean isEditGroup() {
+        Boolean b = (Boolean) registry.lookup(LookupNames.PRIV_EDIT_GROUP);
+        if (b == null)
+            b = Boolean.FALSE;
+
+        return isAdministrator() && b.booleanValue();
+    }
+
+    /**
+     * Returns <code>true</code> if the currently logged in user is allowed
+     * to edit users, <code>false</code> otherwise.
+     * 
+     * @return See above.
+     */
+    public static boolean isEditUser() {
+        Boolean b = (Boolean) registry.lookup(LookupNames.PRIV_EDIT_USER);
+        if (b == null)
+            b = Boolean.FALSE;
+
+        return isAdministrator() && b.booleanValue();
+    }
 }

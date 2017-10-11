@@ -47,6 +47,7 @@ $(function() {
     })
     .on('selection_change.ome', function(e, nElements) {
         multiselection = nElements > 1;
+        // NB: Don't return false - let event bubble up to $("body")
     })
     .on('copy_node.jstree', function(e, data) {
         /**
@@ -254,7 +255,16 @@ $(function() {
         if (node) {
             if (node.type === 'image') {
                 //Open the image viewer for this image
-                window.open(WEBCLIENT.URLS.webindex + "img_detail/" + node.data.obj.id, '_blank');
+                var url = WEBCLIENT.URLS.webindex + "img_detail/" + node.data.obj.id + "/";
+                // Add dataset id so the viewer can know its context
+                var inst = $.jstree.reference('#dataTree');
+                var parent = datatree.get_node(node.parent);
+                if (parent && parent.data) {
+                    if (parent.type === 'dataset') {
+                        url += '?' + parent.type + '=' + parent.data.id
+                    }
+                }
+                window.open(url, '_blank');
             }
         }
     })
@@ -979,6 +989,7 @@ $(function() {
                                 var inst = $.jstree.reference('#dataTree');
                                 OME.copyRenderingSettings(WEBCLIENT.URLS.copy_image_rdef_json,
                                     inst.get_selected(true));
+                                WEBCLIENT.HAS_RDEF = true;
                             }
                         },
                         "paste_rdef": {
@@ -1086,15 +1097,18 @@ $(function() {
                 // List of permissions related disabling
                 // use canLink, canDelete etc classes on each node to enable/disable right-click menu
 
-                var userId = WEBCLIENT.active_user_id,
-                    canCreate = (userId === WEBCLIENT.USER.id || userId === -1),
+                var userId = WEBCLIENT.active_user.id,
+                    // admin may be viewing a Group that they are not a member of
+                    memberOfGroup = WEBCLIENT.eventContext.memberOfGroups.indexOf(WEBCLIENT.active_group_id) > -1,
+                    writeOwned = WEBCLIENT.eventContext.adminPrivileges.indexOf("WriteOwned") > -1,
+                    allMembers = userId === -1,
+                    // canCreate if looking at your own data or 'All Members' OR User's data && writeOwned
+                    canCreate = (userId === WEBCLIENT.USER.id || (allMembers && memberOfGroup) ||
+                        (!allMembers && writeOwned)),
                     canLink = OME.nodeHasPermission(node, 'canLink'),
                     parentAllowsCreate = (node.type === "orphaned" || node.type === "experimenter");
 
-
-                // Although not everything created here will go under selected node,
-                // we still don't allow creation if linking not allowed
-                if(canCreate && (canLink || parentAllowsCreate)) {
+                if(canCreate) {
                     // Enable tag or P/D/I submenus created above
                     config["create"]["_disabled"] = false;
                     if (tagTree) {
@@ -1102,7 +1116,13 @@ $(function() {
                         config["create"]["submenu"]["tag"]["_disabled"] = false;
                     } else {
                         config["create"]["submenu"]["project"]["_disabled"] = false;
-                        config["create"]["submenu"]["dataset"]["_disabled"] = false;
+                        if (node.type === "project") {
+                            // If Project is selected don't try to create Dataset
+                            // unless we canLink or create link that belongs to user
+                            config["create"]["submenu"]["dataset"]["_disabled"] = !(canLink || writeOwned);
+                        } else {
+                            config["create"]["submenu"]["dataset"]["_disabled"] = false;
+                        }
                         config["create"]["submenu"]["screen"]["_disabled"] = false;
                     }
                 }
@@ -1168,8 +1188,13 @@ $(function() {
                         node.type === 'acquisition' ||
                         node.type === 'image') {
 
+                        if (WEBCLIENT.HAS_RDEF) {
+                            // If the user has not got an object to copy, don't show the
+                            // paste option as a valid item
+                            config['renderingsettings']["submenu"]['paste_rdef']['_disabled'] = false;
+                        }
+
                         config['renderingsettings']['_disabled'] = false;
-                        config['renderingsettings']["submenu"]['paste_rdef']['_disabled'] = false;
                         config['renderingsettings']["submenu"]['reset_rdef']['_disabled'] = false;
                         config['renderingsettings']["submenu"]['owner_rdef']['_disabled'] = false;
                     }

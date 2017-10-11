@@ -40,6 +40,18 @@
                 // We do this here and in batch_annotate panel
                 OME.initToolbarDropdowns();
 
+
+            {% if image %}
+                var parent = OME.getParentId();
+                if (parent) {
+                    if (parent.split('-')[0] === 'dataset') {
+                        var $btn = $("#open_full_viewer");
+                        $btn.prop('href', $btn.prop('href') + '?' + parent.replace('-', '='));
+                    }
+                }
+            {% endif %}
+
+
                 var selectedObjs = [{% for o in obj_labels %}{% if forloop.counter > 1 %},{% endif %}"{{ o.type|lower }}-{{ o.id}}"{% endfor %}];
 
 
@@ -137,7 +149,7 @@
             <span></span>
         </button>
         <ul class="dropdown">
-            {% if canDownload %}
+        {% if canDownload %}
             <!-- Here we handle a single image (in metadata general) - see below for multiple images (batch annotate) -->
             {% if not share and image.getImportedFilesInfo.count %}
               {% with filesetInfo=image.getImportedFilesInfo %}
@@ -191,22 +203,22 @@
               <a title="No original imported files to download">Download...</a>
             </li>
             {% endif %}
+        <!-- endif canDownload -->
+        {% endif %}
 
-            {% if not share %}
-            {% if image and not omeTiffDisabled %}
+        {% if not share %}
+            {% if image and not image.requiresPixelsPyramid %}
             <li>
                 <a id="create-ometiff" href="{% url 'ome_tiff_script' image.id %}" 
                 title="Create OME-TIFF File for Download">Export as OME-TIFF...</a>
             </li>
             {% else %}
             <li class="disabled">
-                <a id="create-ometiff" href="#" class="disabled"
+                <a href="#" class="disabled"
                 title="Create OME-TIFF File for Download">Export as OME-TIFF...</a>
             </li>
-            <li>{{ manager.}}
             {% endif %}
-            {% endif %}
-            {% endif %}
+        {% endif %}
             
             {% if image %}
               {% with ex=canExportAsJpg %}
@@ -328,17 +340,16 @@
     
 
 
-
     <div style="position: absolute; left: 0">
       {% if image %}
       <a class="btn silver btn_text" style="height: 18px"
-              target="_blank"
+              id="open_full_viewer" target="_blank"
               {% if share and not share.share.isOwned %}
                   href="{% url 'web_image_viewer' share.share.id image.id %}"
               {% else %}
                   href="{% url 'web_image_viewer' image.id %}"
               {% endif %}
-              title="Open full image viewer in new window">
+              title="Open full image viewer in new tab">
           <span>
               Full viewer
           </span>

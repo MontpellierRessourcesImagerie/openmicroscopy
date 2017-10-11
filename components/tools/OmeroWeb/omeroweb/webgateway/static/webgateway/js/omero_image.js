@@ -32,6 +32,11 @@
         var jqxhr = $.getJSON(viewport.viewport_server + "/copyImgRDef/?" + rdefQry);
         jqxhr.complete(function() {
             $("#rdef-paste-btn").removeAttr('disabled').removeClass("button-disabled");
+
+            // Optional : only present on webclient app
+            if (WEBCLIENT) {
+                WEBCLIENT.HAS_RDEF = true;
+            }
         });
     };
 
@@ -173,20 +178,37 @@
         }
     };
 
+    function getLutIndex(lutName) {
+      if (OME && OME.LUTS) {
+        for (var l=0; l<OME.LUTS.length; l++) {
+          if (OME.LUTS[l].name === lutName) {
+            return OME.LUTS[l].png_index;
+          }
+        }
+      }
+      return -1;
+    }
+
     function getLutBgPos(color, slider) {
+        var png_height = OME.PNG_LUTS.length * 10;
+        var style = {'background-size': '100% ' + (png_height * 3) + 'px'};
+        var yoffset;
         if (color.endsWith('.lut')) {
-            var lutIndex = OME.LUT_NAMES.indexOf(color);
+            var lutIndex = getLutIndex(color);
             if (lutIndex > -1) {
-                return '0px -' + (lutIndex * 30 + 7) + 'px';
+                yoffset = '-' + (lutIndex * 30 + 7) + 'px';
+            }
+        } else {
+            // Not found - show last bg (black -> transparent gradient)
+            if (slider) {
+                yoffset = '-' + ((OME.LUTS.length) * 30 + 7) + 'px';
+            } else {
+                // For buttons, hide by offsetting
+                yoffset = '100px';
             }
         }
-        // Not found - show last bg (black -> transparent gradient)
-        if (slider) {
-            return '0px -' + (OME.LUT_NAMES.length * 30 + 7) + 'px';
-        } else {
-            // For buttons, hide by offsetting
-            return '0px 100px';
-        }
+        style['background-position'] = '0px ' + yoffset;
+        return style;
     }
 
     window.syncRDCW = function(viewport) {
@@ -195,34 +217,34 @@
         var lutBgPos, sliderLutBgPos;
         for (i=0; i<channels.length; i++) {
             color = channels[i].color;
-            lutBgPos = getLutBgPos(color);
-            sliderLutBgPos = getLutBgPos(color, true);
+            lutBgStyle = getLutBgPos(color);
+            sliderLutBgStyle = getLutBgPos(color, true);
             if (color.endsWith('.lut')) {
                 color = 'EEEEEE';
             }
             // Button beside image in full viewer (not in Preview panel):
             $('#wblitz-ch' + i).css('background-color', '#' + color)
-                .find('.lutBackground').css('background-position', lutBgPos);
+                .find('.lutBackground').css(lutBgStyle);
             // Slider background
             $('#wblitz-ch'+i+'-cwslider').find('.ui-slider-range').addClass('lutBackground')
-                .css({'background-position': sliderLutBgPos,
-                      'background-color': '#' + color,
-                      'transform': channels[i].reverseIntensity ? 'scaleX(-1)' : ''});
+                .css(sliderLutBgStyle)
+                .css({'background-color': '#' + color,
+                      'transform': channels[i].inverted ? 'scaleX(-1)' : ''});
             // Channel button beside slider
             $('#rd-wblitz-ch'+i)
                 .css('background-color', '#' + color)
-                .find('.lutBackground').css('background-position', lutBgPos);
+                .find('.lutBackground').css(lutBgStyle);
             var w = channels[i].window;
             $('#wblitz-ch'+i+'-cwslider')
                 .slider( "option", "min", Math.min(w.min, w.start) )   // extend range if needed
                 .slider( "option", "max", Math.max(w.max, w.end) );
-                $('#wblitz-ch'+i+'-color').attr('data-color', channels[i].color);
-                $('#wblitz-ch'+i+'-cw-start').val(channels[i].window.start).change();
-                $('#wblitz-ch'+i+'-cw-end').val(channels[i].window.end).change();
+            $('#wblitz-ch'+i+'-color').attr('data-color', channels[i].color);
+            $('#wblitz-ch'+i+'-cw-start').val(channels[i].window.start).change();
+            $('#wblitz-ch'+i+'-cw-end').val(channels[i].window.end).change();
         }
         // Colorpicker buttons store 'reverse-intensity' with .data() to populate colorbtn dialog
         $(".picker").each(function(i, pickerBtn) {
-            $(pickerBtn).data('data-reverse-intensity', channels[i].reverseIntensity);
+            $(pickerBtn).data('data-reverse-intensity', channels[i].inverted);
         });
         hidePicker();
 
@@ -265,7 +287,7 @@
             }
             viewport.setChannelColor(i, $('#wblitz-ch'+i+'-color').attr('data-color'), true);
             revInt = $('#wblitz-ch'+i+'-color').data('data-reverse-intensity');
-            if (revInt !== undefined) {viewport.setChannelReverseIntensity(i, revInt, true);}
+            if (revInt !== undefined) {viewport.setChannelInverted(i, revInt, true);}
             var noreload = ((i+1) < viewport.getCCount());    // prevent reload, except on the last loop
             viewport.setChannelWindow(i, $('#wblitz-ch'+i+'-cw-start').get(0).value, $('#wblitz-ch'+i+'-cw-end').get(0).value, noreload);
         }
@@ -305,8 +327,8 @@
 
             var wellsUrl = PLATE_WELLS_URL_999.replace('999', tmp.wellId),
                 linksUrl = PLATE_LINKS_URL_999.replace('999', tmp.wellId);
-            loadBulkAnnotations(wellsUrl, tmp.wellId);
-            loadBulkAnnotations(linksUrl, tmp.wellId);
+            loadBulkAnnotations(wellsUrl, 'Well-' + tmp.wellId);
+            loadBulkAnnotations(linksUrl, 'Well-' + tmp.wellId);
         }
     };
 
@@ -544,7 +566,7 @@
 
         /* Prepare color picker buttons */
         $(".picker").each(function(i, pickerBtn) {
-            $(pickerBtn).data('data-reverse-intensity', channels[i].reverseIntensity);
+            $(pickerBtn).data('data-reverse-intensity', channels[i].inverted);
         });
         $(".picker")
             .colorbtn({'server': viewport.viewport_server})

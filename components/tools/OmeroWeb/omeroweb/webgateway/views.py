@@ -69,7 +69,7 @@ import shutil
 
 from omeroweb.decorators import login_required, ConnCleaningHttpResponse
 from omeroweb.connector import Connector
-from omeroweb.webgateway.util import zip_archived_files
+from omeroweb.webgateway.util import zip_archived_files, LUTS_IN_PNG
 from omeroweb.webgateway.util import get_longs, getIntOrDefault
 
 cache = CacheBase()
@@ -811,21 +811,37 @@ def _get_prepared_image(request, iid, server_id=None, conn=None,
     img = conn.getObject("Image", iid)
     if img is None:
         return
-    reverses = _get_maps_enabled(r, 'reverse', img.getSizeC())
+    invert_flags = None
+    if 'maps' in r:
+        reverses = _get_maps_enabled(r, 'reverse', img.getSizeC())
+        # 'reverse' is now deprecated (5.4.0). Also check for 'invert'
+        invert_flags = _get_maps_enabled(r, 'inverted', img.getSizeC())
+        # invert is True if 'invert' OR 'reverse' is enabled
+        if reverses is not None and invert_flags is not None:
+            invert_flags = [z[0] if z[0] is not None else z[1] for z in
+                            zip(invert_flags, reverses)]
+        try:
+            # quantization maps (just applied, not saved at the moment)
+            qm = [m.get('quantization') for m in json.loads(r['maps'])]
+            img.setQuantizationMaps(qm)
+        except:
+            logger.debug('Failed to set quantization maps')
+
     if 'c' in r:
         logger.debug("c="+r['c'])
         activechannels, windows, colors = _split_channel_info(r['c'])
         allchannels = range(1, img.getSizeC() + 1)
         # If saving, apply to all channels
         if saveDefs and not img.setActiveChannels(allchannels, windows,
-                                                  colors, reverses):
+                                                  colors, invert_flags):
             logger.debug(
                 "Something bad happened while setting the active channels...")
         # Save the active/inactive state of the channels
         if not img.setActiveChannels(activechannels, windows, colors,
-                                     reverses):
+                                     invert_flags):
             logger.debug(
                 "Something bad happened while setting the active channels...")
+
     if r.get('m', None) == 'g':
         img.setGreyscaleRenderingModel()
     elif r.get('m', None) == 'c':
@@ -841,7 +857,6 @@ def _get_prepared_image(request, iid, server_id=None, conn=None,
             pass
     img.setProjection(p)
     img.setProjectionRange(pStart, pEnd)
-
     img.setInvertedAxis(bool(r.get('ia', "0") == "1"))
     compress_quality = r.get('q', None)
     if saveDefs:
@@ -969,9 +984,14 @@ def render_image(request, iid, z=None, t=None, conn=None, **kwargs):
             jpeg_data = output.getvalue()
             output.close()
             rsp = HttpResponse(jpeg_data, content_type='image/png')
-        # don't seem to need to do this for tiff
         elif format == 'tif':
-            rsp = HttpResponse(jpeg_data, content_type='image/tif')
+            # convert jpeg data to TIFF
+            i = Image.open(StringIO(jpeg_data))
+            output = StringIO()
+            i.save(output, 'tiff')
+            jpeg_data = output.getvalue()
+            output.close()
+            rsp = HttpResponse(jpeg_data, content_type='image/tiff')
         fileName = img.getName().decode('utf8').replace(" ", "_")
         fileName = fileName.replace(",", ".")
         rsp['Content-Type'] = 'application/force-download'
@@ -1196,7 +1216,7 @@ def render_movie(request, iid, axis, pos, conn=None, **kwargs):
                                              img.getSizeT()-1, opts)
         if dext is None and mimetype is None:
             # createMovie is currently only available on 4.1_custom
-            # http://trac.openmicroscopy.org.uk/ome/ticket/3857
+            # https://trac.openmicroscopy.org.uk/ome/ticket/3857
             raise Http404
         if fpath is None:
             movie = open(fn).read()
@@ -1284,7 +1304,7 @@ def jsonp(f):
         logger.debug('jsonp')
         try:
             server_id = kwargs.get('server_id', None)
-            if server_id is None:
+            if server_id is None and request.session.get('connector'):
                 server_id = request.session['connector'].server_id
             kwargs['server_id'] = server_id
             rv = f(request, *args, **kwargs)
@@ -1864,18 +1884,25 @@ def save_image_rdef_json(request, iid, conn=None, **kwargs):
 def listLuts_json(request, conn=None, **kwargs):
     """
     Lists lookup tables 'LUTs' availble for rendering
+
+    This list is dynamic and will change if users add LUTs to their server.
+    We include 'png_index' which is the index of each LUT within the
+    static/webgateway/img/luts_10.png or -1 if LUT is not found.
     """
     scriptService = conn.getScriptService()
     luts = scriptService.getScriptsByMimetype("text/x-lut")
     rv = []
     for l in luts:
+        lut = l.path.val + l.name.val
+        png_index = LUTS_IN_PNG.index(lut) if lut in LUTS_IN_PNG else -1
         rv.append({'id': l.id.val,
                    'path': l.path.val,
                    'name': l.name.val,
-                   'size': unwrap(l.size)
+                   'size': unwrap(l.size),
+                   'png_index': png_index,
                    })
     rv.sort(key=lambda x: x['name'].lower())
-    return {"luts": rv}
+    return {"luts": rv, "png_luts": LUTS_IN_PNG}
 
 
 @login_required()
@@ -2059,7 +2086,7 @@ def copy_image_rdef_json(request, conn=None, **kwargs):
             start = ch.getWindowStart()
             end = ch.getWindowEnd()
             color = ch.getLut()
-            maps.append({'reverse': {'enabled': ch.isReverseIntensity()}})
+            maps.append({'inverted': {'enabled': ch.isInverted()}})
             if not color or len(color) == 0:
                 color = ch.getColor().getHtml()
             chs.append("%s%s|%s:%s$%s" % (act, i+1, start, end, color))
@@ -2071,10 +2098,10 @@ def copy_image_rdef_json(request, conn=None, **kwargs):
         return rv
 
     def applyRenderingSettings(image, rdef):
-        reverses = _get_maps_enabled(rdef, 'reverse', image.getSizeC())
+        invert_flags = _get_maps_enabled(rdef, 'inverted', image.getSizeC())
         channels, windows, colors = _split_channel_info(rdef['c'])
         # also prepares _re
-        image.setActiveChannels(channels, windows, colors, reverses)
+        image.setActiveChannels(channels, windows, colors, invert_flags)
         if rdef['m'] == 'g':
             image.setGreyscaleRenderingModel()
         else:
@@ -2154,7 +2181,7 @@ def get_image_rdef_json(request, conn=None, **kwargs):
                 color = ch.get('lut') or ch['color']
                 chs.append("%s|%s:%s$%s" % (act, ch['window']['start'],
                                             ch['window']['end'], color))
-                maps.append({'reverse': {'enabled': ch['reverseIntensity']}})
+                maps.append({'inverted': {'enabled': ch['inverted']}})
             rdef = {'c': (",".join(chs)),
                     'm': rv['rdefs']['model'],
                     'pixel_range': "%s:%s" % (rv['pixel_range'][0],
@@ -2749,10 +2776,16 @@ def object_table_query(request, objtype, objid, conn=None, **kwargs):
     # one (= the one with the highest identifier)
     fileId = 0
     ann = None
-    for annotation in a['data']:
-        if annotation['file'] > fileId:
-            fileId = annotation['file']
+    annList = sorted(a['data'], key=lambda x: x['file'], reverse=True)
+    tableData = None
+    for annotation in annList:
+        tableData = _table_query(request, annotation['file'], conn, **kwargs)
+        if 'error' not in tableData:
             ann = annotation
+            fileId = annotation['file']
+            break
+    if ann is None:
+        return dict(error='Could not retrieve matching bulk annotation table')
     tableData = _table_query(request, fileId, conn, **kwargs)
     tableData['id'] = fileId
     tableData['annId'] = ann['id']
@@ -2823,7 +2856,7 @@ class LoginView(View):
             username = form.cleaned_data['username']
             password = form.cleaned_data['password']
             server_id = form.cleaned_data['server']
-            is_secure = form.cleaned_data['ssl']
+            is_secure = settings.SECURE
 
             connector = Connector(server_id, is_secure)
 

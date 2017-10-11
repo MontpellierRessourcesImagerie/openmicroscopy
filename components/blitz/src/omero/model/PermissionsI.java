@@ -7,6 +7,8 @@
 package omero.model;
 
 import static ome.model.internal.Permissions.ANNOTATERESTRICTION;
+import static ome.model.internal.Permissions.CHGRPRESTRICTION;
+import static ome.model.internal.Permissions.CHOWNRESTRICTION;
 import static ome.model.internal.Permissions.DELETERESTRICTION;
 import static ome.model.internal.Permissions.EDITRESTRICTION;
 import static ome.model.internal.Permissions.LINKRESTRICTION;
@@ -21,7 +23,7 @@ import Ice.Object;
  * link below), but should not be used by clients.
  *
  * @author Josh Moore, josh at glencoesoftware.com
- * @see <a href="http://trac.openmicroscopy.org.uk/ome/ticket/685">ticket:685</a>
+ * @see <a href="https://trac.openmicroscopy.org.uk/ome/ticket/685">ticket:685</a>
  * @see <a href="http://www.zeroc.com/forums/showthread.php?t=3084">ZeroC Thread
  *      3084</a>
  *
@@ -92,6 +94,16 @@ public class PermissionsI extends Permissions implements ome.model.ModelBased {
 
     public boolean canAnnotate(final Ice.Current c) {
         return !isDisallow(ANNOTATERESTRICTION, c);
+    }
+
+    @Override
+    public boolean canChgrp(final Ice.Current c) {
+        return !isDisallow(CHGRPRESTRICTION, c);
+    }
+
+    @Override
+    public boolean canChown(final Ice.Current c) {
+        return !isDisallow(CHOWNRESTRICTION, c);
     }
 
     public boolean canDelete(final Ice.Current c) {

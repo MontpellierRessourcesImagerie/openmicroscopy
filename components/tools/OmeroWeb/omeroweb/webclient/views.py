@@ -54,7 +54,6 @@ from django.template import RequestContext as Context
 from django.utils.http import urlencode
 from django.core.urlresolvers import reverse
 from django.utils.encoding import smart_str
-from django.core.servers.basehttp import FileWrapper
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
@@ -118,6 +117,11 @@ def get_long_or_default(request, name, default):
     if val_raw is not None:
         val = long(val_raw)
     return val
+
+
+def get_list(request, name):
+    val = request.GET.getlist(name)
+    return [i for i in val if i != '']
 
 
 def get_longs(request, name):
@@ -372,7 +376,7 @@ def _load_template(request, menu, conn=None, url=None, **kwargs):
 
     # search support
     init = {}
-    global_search_form = GlobalSearchForm(data=request.POST.copy())
+    global_search_form = GlobalSearchForm(data=request.GET.copy())
     if menu == "search":
         if global_search_form.is_valid():
             init['query'] = global_search_form.cleaned_data['search_query']
@@ -1148,13 +1152,13 @@ def api_tags_and_tagged_list_DELETE(request, conn=None, **kwargs):
 def api_annotations(request, conn=None, **kwargs):
 
     r = request.GET
-    image_ids = r.getlist('image')
-    dataset_ids = r.getlist('dataset')
-    project_ids = r.getlist('project')
-    screen_ids = r.getlist('screen')
-    plate_ids = r.getlist('plate')
-    run_ids = r.getlist('acquisition')
-    well_ids = r.getlist('well')
+    image_ids = get_list(request, 'image')
+    dataset_ids = get_list(request, 'dataset')
+    project_ids = get_list(request, 'project')
+    screen_ids = get_list(request, 'screen')
+    plate_ids = get_list(request, 'plate')
+    run_ids = get_list(request, 'acquisition')
+    well_ids = get_list(request, 'well')
     page = get_long_or_default(request, 'page', 1)
     limit = get_long_or_default(request, 'limit', settings.PAGE)
 
@@ -1374,7 +1378,7 @@ def load_searching(request, form=None, conn=None, **kwargs):
 
     foundById = []
     # form = 'form' if we are searching. Get query from request...
-    r = request.GET or request.POST
+    r = request.GET
     if form is not None:
         query_search = r.get('query').replace("+", " ")
         template = "webclient/search/search_details.html"
@@ -1572,8 +1576,8 @@ def load_metadata_preview(request, c_type, c_id, conn=None, share_id=None,
             if c['active']:
                 act = ""
             color = c['lut'] if 'lut' in c else c['color']
-            reverse = 'r' if c['reverseIntensity'] else '-r'
-            chs.append('%s%s|%d:%d%s$%s'
+            reverse = 'r' if c['inverted'] else '-r'
+            chs.append('%s%s|%s:%s%s$%s'
                        % (act, i+1, c['start'], c['end'], reverse, color))
         rdefQueries.append({
             'id': r['id'],
@@ -2545,65 +2549,43 @@ def manage_action_containers(request, action, o_type=None, o_id=None,
         if not request.method == 'POST':
             return HttpResponseRedirect(reverse("manage_action_containers",
                                         args=["edit", o_type, o_id]))
-        if o_type == "project" and hasattr(manager, o_type) and o_id > 0:
-            # If Parent o_type is 'project'...
-            form = ContainerForm(data=request.POST.copy())
-            if form.is_valid():
-                logger.debug(
-                    "Create new in %s: %s" % (o_type, str(form.cleaned_data)))
-                name = form.cleaned_data['name']
-                description = form.cleaned_data['description']
-                oid = manager.createDataset(name, description)
-                rdict = {'bad': 'false', 'id': oid}
-                return JsonResponse(rdict)
-            else:
-                d = dict()
-                for e in form.errors.iteritems():
-                    d.update({e[0]: unicode(e[1])})
-                rdict = {'bad': 'true', 'errs': d}
-                return JsonResponse(rdict)
-        elif o_type == "tagset" and o_id > 0:
-            form = ContainerForm(data=request.POST.copy())
-            if form.is_valid():
-                name = form.cleaned_data['name']
-                description = form.cleaned_data['description']
-                oid = manager.createTag(name, description)
-                rdict = {'bad': 'false', 'id': oid}
-                return JsonResponse(rdict)
-            else:
-                d = dict()
-                for e in form.errors.iteritems():
-                    d.update({e[0]: unicode(e[1])})
-                rdict = {'bad': 'true', 'errs': d}
-                return JsonResponse(rdict)
-        elif request.POST.get('folder_type') in ("project", "screen",
-                                                 "dataset", "tag", "tagset"):
-            # No parent specified. We can create orphaned 'project', 'dataset'
-            # etc.
-            form = ContainerForm(data=request.POST.copy())
-            if form.is_valid():
-                logger.debug("Create new: %s" % (str(form.cleaned_data)))
-                name = form.cleaned_data['name']
-                description = form.cleaned_data['description']
+
+        form = ContainerForm(data=request.POST.copy())
+        if form.is_valid():
+            logger.debug(
+                "Create new in %s: %s" % (o_type, str(form.cleaned_data)))
+            name = form.cleaned_data['name']
+            description = form.cleaned_data['description']
+            owner = form.cleaned_data['owner']
+
+            if o_type == "project" and hasattr(manager, o_type) and o_id > 0:
+                oid = manager.createDataset(name, description, owner=owner)
+            elif o_type == "tagset" and o_id > 0:
+                oid = manager.createTag(name, description, owner=owner)
+            elif request.POST.get('folder_type') in ("project", "screen",
+                                                     "dataset",
+                                                     "tag", "tagset"):
+                # No parent specified. We can create orphaned 'project',
+                # 'dataset' etc.
                 folder_type = request.POST.get('folder_type')
                 if folder_type == "dataset":
                     oid = manager.createDataset(
                         name, description,
+                        owner=owner,
                         img_ids=request.POST.getlist('image', None))
                 else:
-                    # lookup method, E.g. createTag, createProject etc.
-                    oid = getattr(manager, "create" +
-                                  folder_type.capitalize())(name, description)
-                rdict = {'bad': 'false', 'id': oid}
-                return JsonResponse(rdict)
+                    oid = conn.createContainer(folder_type, name,
+                                               description, owner=owner)
             else:
-                d = dict()
-                for e in form.errors.iteritems():
-                    d.update({e[0]: unicode(e[1])})
-                rdict = {'bad': 'true', 'errs': d}
-                return JsonResponse(rdict)
+                return HttpResponseServerError("Object does not exist")
+            rdict = {'bad': 'false', 'id': oid}
+            return JsonResponse(rdict)
         else:
-            return HttpResponseServerError("Object does not exist")
+            d = dict()
+            for e in form.errors.iteritems():
+                d.update({e[0]: unicode(e[1])})
+            rdict = {'bad': 'true', 'errs': d}
+            return JsonResponse(rdict)
     elif action == 'add':
         template = "webclient/public/share_form.html"
         experimenters = list(conn.getExperimenters())
@@ -2611,6 +2593,8 @@ def manage_action_containers(request, action, o_type=None, o_id=None,
         if o_type == "share":
             img_ids = request.GET.getlist('image',
                                           request.POST.getlist('image'))
+            if request.method == 'GET' and len(img_ids) == 0:
+                return HttpResponse("No images specified")
             images_to_share = list(conn.getObjects("Image", img_ids))
             if request.method == 'POST':
                 form = BasketShareForm(
@@ -2887,98 +2871,6 @@ def get_original_file(request, fileId, download=False, conn=None, **kwargs):
         downloadName = orig_file.name.replace(" ", "_")
         downloadName = downloadName.replace(",", ".")
         rsp['Content-Disposition'] = 'attachment; filename=%s' % downloadName
-    return rsp
-
-
-@login_required()
-def image_as_map(request, imageId, conn=None, **kwargs):
-    """
-    Converts OMERO image into mrc.map file (using tiltpicker utils) and
-    returns the file
-    """
-    warnings.warn(
-        "This module is deprecated as of OMERO 5.3.0", DeprecationWarning)
-
-    from omero_ext.tiltpicker.pyami import mrc
-    from numpy import dstack, zeros, int8
-
-    image = conn.getObject("Image", imageId)
-    if image is None:
-        message = "Image ID %s not found in image_as_map" % imageId
-        logger.error(message)
-        return handlerInternalError(request, message)
-
-    imageName = image.getName()
-    downloadName = (imageName.endswith(".map") and imageName or
-                    "%s.map" % imageName)
-    pixels = image.getPrimaryPixels()
-
-    # get a list of numpy planes and make stack
-    zctList = [(z, 0, 0) for z in range(image.getSizeZ())]
-    npList = list(pixels.getPlanes(zctList))
-    npStack = dstack(npList)
-    logger.info(
-        "Numpy stack for image_as_map: dtype: %s, range %s-%s"
-        % (npStack.dtype.name, npStack.min(), npStack.max()))
-
-    # OAV only supports 'float' and 'int8'. Convert anything else to int8
-    if (pixels.getPixelsType().value != 'float' or
-            ('8bit' in kwargs and kwargs['8bit'])):
-        # scale from -127 -> 128 and conver to 8 bit integer
-        npStack = npStack - npStack.min()  # start at 0
-        # range - 127 -> 128
-        npStack = (npStack * 255.0 / npStack.max()) - 127
-        a = zeros(npStack.shape, dtype=int8)
-        npStack = npStack.round(out=a)
-
-    if "maxSize" in kwargs and int(kwargs["maxSize"]) > 0:
-        sz = int(kwargs["maxSize"])
-        targetSize = sz * sz * sz
-        # if available, use scipy.ndimage to resize
-        if npStack.size > targetSize:
-            try:
-                import scipy.ndimage
-                from numpy import round
-                factor = float(targetSize) / npStack.size
-                factor = pow(factor, 1.0/3)
-                logger.info(
-                    "Resizing numpy stack %s by factor of %s"
-                    % (npStack.shape, factor))
-                npStack = round(
-                    scipy.ndimage.interpolation.zoom(npStack, factor), 1)
-            except ImportError:
-                logger.info(
-                    "Failed to import scipy.ndimage for interpolation of"
-                    " 'image_as_map'. Full size: %s" % str(npStack.shape))
-                pass
-
-    header = {}
-    # Sometimes causes scaling issues in OAV.
-    # header["xlen"] = pixels.physicalSizeX * image.getSizeX()
-    # header["ylen"] = pixels.physicalSizeY * image.getSizeY()
-    # header["zlen"] = pixels.physicalSizeZ * image.getSizeZ()
-    # if header["xlen"] == 0 or header["ylen"] == 0 or header["zlen"] == 0:
-    #     header = {}
-
-    # write mrc.map to temp file
-    import tempfile
-    temp = tempfile.NamedTemporaryFile(suffix='.map')
-    try:
-        mrc.write(npStack, temp.name, header)
-        logger.debug(
-            "download file: %r" % {'name': temp.name, 'size': temp.tell()})
-        originalFile_data = FileWrapper(temp)
-        rsp = HttpResponse(originalFile_data)
-        rsp['Content-Type'] = 'application/force-download'
-        # rsp['Content-Length'] = temp.tell()
-        rsp['Content-Length'] = os.path.getsize(temp.name)
-        rsp['Content-Disposition'] = 'attachment; filename=%s' % downloadName
-        temp.seek(0)
-    except Exception:
-        temp.close()
-        logger.error(traceback.format_exc())
-        return handlerInternalError(
-            request, "Cannot generate map (id:%s)." % (imageId))
     return rsp
 
 

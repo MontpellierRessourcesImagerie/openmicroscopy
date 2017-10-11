@@ -27,12 +27,37 @@ import traceback
 logger = logging.getLogger(__name__)
 
 from omero.rtypes import unwrap
+from omero_marshal import get_encoder
 
 # OMERO.insight point list regular expression
 INSIGHT_POINT_LIST_RE = re.compile(r'points\[([^\]]+)\]')
 
 # OME model point list regular expression
 OME_MODEL_POINT_LIST_RE = re.compile(r'([\d.]+),([\d.]+)')
+
+
+def eventContextMarshal(event_context):
+    """
+    Marshals the omero::sys::EventContext as a dict.
+
+    @param event_context:   omero::sys::EventContext
+    @return:                Dict
+    """
+
+    ctx = {}
+    for a in ['shareId', 'sessionId', 'sessionUuid', 'userId', 'userName',
+              'sudoerId', 'sudoerName', 'groupId',
+              'groupName', 'isAdmin', 'eventId', 'eventType',
+              'memberOfGroups', 'leaderOfGroups',
+              'adminPrivileges']:
+            if (hasattr(event_context, a)):
+                ctx[a] = getattr(event_context, a)
+
+    perms = event_context.groupPermissions
+    encoder = get_encoder(perms.__class__)
+    ctx['groupPermissions'] = encoder.encode(perms)
+
+    return ctx
 
 
 def channelMarshal(channel):
@@ -46,7 +71,9 @@ def channelMarshal(channel):
     chan = {'emissionWave': channel.getEmissionWave(),
             'label': channel.getLabel(),
             'color': channel.getColor().getHtml(),
-            'reverseIntensity': channel.isReverseIntensity(),
+            # 'reverseIntensity' is deprecated. Use 'inverted'
+            'inverted': channel.isInverted(),
+            'reverseIntensity': channel.isInverted(),
             'window': {'min': channel.getWindowMin(),
                        'max': channel.getWindowMax(),
                        'start': channel.getWindowStart(),
@@ -78,13 +105,14 @@ def imageMarshal(image, key=None, request=None):
         # ImageWrapper.getDataset() with shares in mind.
         # -- Tue Sep  6 10:48:47 BST 2011 (See #6660)
         parents = image.listParents()
-        if parents is not None and len(parents) == 1:
-            if parents[0].OMERO_CLASS == 'Dataset':
-                ds = parents[0]
-            elif parents[0].OMERO_CLASS == 'WellSample':
-                wellsample = parents[0]
-                if wellsample.well is not None:
-                    well = wellsample.well
+        if parents is not None:
+            datasets = [p for p in parents if p.OMERO_CLASS == 'Dataset']
+            well_smpls = [p for p in parents if p.OMERO_CLASS == 'WellSample']
+            if len(datasets) == 1:
+                ds = datasets[0]
+            if len(well_smpls) == 1:
+                if well_smpls[0].well is not None:
+                    well = well_smpls[0].well
     except omero.SecurityViolation, e:
         # We're in a share so the Image's parent Dataset cannot be loaded
         # or some other permissions related issue has tripped us up.
@@ -352,7 +380,7 @@ def rgb_int2css(rgbint):
     E.g. -1006567680 to '#00ff00', 0.5
     """
     alpha = rgbint % 256
-    alpha = float(alpha) / 256
+    alpha = float(alpha) / 255
     b = rgbint / 256 % 256
     g = rgbint / 256 / 256 % 256
     r = rgbint / 256 / 256 / 256 % 256
@@ -365,7 +393,7 @@ def rgb_int2rgba(rgbint):
     E.g. 1694433280 to (255, 0, 0, 0.390625)
     """
     alpha = rgbint % 256
-    alpha = float(alpha) / 256
+    alpha = float(alpha) / 255
     b = rgbint / 256 % 256
     g = rgbint / 256 / 256 % 256
     r = rgbint / 256 / 256 / 256 % 256

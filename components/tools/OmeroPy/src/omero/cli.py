@@ -37,6 +37,7 @@ import errno
 from threading import Lock
 from path import path
 from contextlib import contextmanager
+from functools import wraps
 
 from omero_ext.argparse import ArgumentError
 from omero_ext.argparse import ArgumentTypeError
@@ -599,23 +600,43 @@ class Context:
 #
 
 
-def admin_only(func):
+def admin_only(*fargs, **fkwargs):
     """
-    Checks that the current user is an admin or throws an exception.
+    Checks that the current user is an admin and has sufficient privileges,
+    or throws an exception.
     """
-    def _check_admin(*args, **kwargs):
-        args = list(args)
-        self = args[0]
-        plugin_args = args[1]
-        client = self.ctx.conn(plugin_args)
-        ec = client.sf.getAdminService().getEventContext()
-        if not ec.isAdmin:
-            self.error_admin_only(fatal=True)
-        return func(*args, **kwargs)
+    def _admin_only(func):
+        @wraps(func)
+        def _check_admin(*args, **kwargs):
+            self = args[0]
+            plugin_args = args[1]
+            client = self.ctx.conn(plugin_args)
+            ec = client.sf.getAdminService().getEventContext()
+            have_privs = set(ec.adminPrivileges)
 
-    from omero.util.decorators import wraps
-    _check_admin = wraps(func)(_check_admin)
-    return _check_admin
+            if fargs:
+                need_privs = set(fargs)
+            else:
+                full_admin = fkwargs.get("full_admin", True)
+                if not full_admin:
+                    need_privs = set()
+                else:
+                    try:
+                        types = client.sf.getTypesService()
+                        privs = types.allEnumerations("AdminPrivileges")
+                        need_privs = set([x.getValue() for x in privs])
+                    except:
+                        # If the user can't load enums assume the worst
+                        self.error_admin_only(fatal=True)
+
+            if not ec.isAdmin:
+                self.error_admin_only(fatal=True)
+            elif not need_privs <= have_privs:
+                self.error_admin_only_privs(need_privs - have_privs,
+                                            fatal=True)
+            return func(*args, **kwargs)
+        return _check_admin
+    return _admin_only
 
 
 class BaseControl(object):
@@ -916,6 +937,12 @@ class BaseControl(object):
         else:
             self.ctx.err(msg)
 
+    def error_admin_only_privs(self, restrictions,
+                               msg="SecurityViolation: Admin restrictions: ",
+                               code=111, fatal=True):
+        msg += ", ".join(sorted(restrictions))
+        self.error_admin_only(msg=msg, code=code, fatal=fatal)
+
     def _order_and_range_ids(self, ids):
         from itertools import groupby
         from operator import itemgetter
@@ -930,6 +957,75 @@ class BaseControl(object):
                 out += "," + g[1]
             out += ","
         return out.rstrip(",")
+
+
+class DiagnosticsControl(BaseControl):
+    """
+    Superclass (and SPI-interface) for any control commands that would
+    like to provide a "diagnostics" method, like bin/omero admin diagnostics
+    and bin/omero web diagnostics. The top-level diagnostics command then
+    can find each such plugin and iterate over it.
+    """
+
+    def _add_diagnostics(self, parser, sub):
+        diagnostics = parser.add(
+            sub, self.diagnostics,
+            "Run a set of checks on the current, "
+            "preferably active server")
+        diagnostics.add_argument(
+            "--no-logs", action="store_true",
+            help="Skip log parsing")
+
+    def _diagnostics_banner(self, control_name):
+
+        self.ctx.out("""
+%s
+OMERO Diagnostics (%s) %s
+%s
+        """ % ("="*80, control_name, VERSION, "="*80))
+
+    def _sz_str(self, sz):
+        for x in ["KB", "MB", "GB"]:
+            sz /= 1000
+            if sz < 1000:
+                break
+        sz = "%.1f %s" % (sz, x)
+        return sz
+
+    def _item(self, cat, msg):
+        cat = cat + ":"
+        cat = "%-12s" % cat
+        self.ctx.out(cat, False)
+        msg = "%-30s " % msg
+        self.ctx.out(msg, False)
+
+    def _exists(self, p):
+        if p.isdir():
+            if not p.exists():
+                self.ctx.out("doesn't exist")
+            else:
+                self.ctx.out("exists")
+        else:
+            if not p.exists():
+                self.ctx.out("n/a")
+            else:
+                warn_regex = ('(-! )?[\d\-/]+\s+[\d:,.]+\s+([\w.]+:\s+)?'
+                              'warn(i(ng:)?)?\s')
+                err_regex = ('(!! )?[\d\-/]+\s+[\d:,.]+\s+([\w.]+:\s+)?'
+                             'error:?\s')
+                warn = 0
+                err = 0
+                for l in p.lines():
+                    # ensure errors/warnings search is case-insensitive
+                    lcl = l.lower()
+                    if re.match(warn_regex, lcl):
+                        warn += 1
+                    elif re.match(err_regex, lcl):
+                        err += 1
+                msg = ""
+                if warn or err:
+                    msg = " errors=%-4s warnings=%-4s" % (err, warn)
+                self.ctx.out("%-12s %s" % (self._sz_str(p.size), msg))
 
 
 class CLI(cmd.Cmd, Context):
@@ -1388,7 +1484,17 @@ class CLI(cmd.Cmd, Context):
         in the parser
         """
 
-        for plugin_path in self._plugin_paths:
+        paths = set(self._plugin_paths)
+        for x in sys.path:
+            x = path(x)
+            if x.isdir():
+                x = x / "omero" / "plugins"
+                if x.exists():
+                    paths.add(x)
+            else:
+                if self.isdebug:
+                    print "Can't load %s" % x
+        for plugin_path in paths:
             self.loadpath(path(plugin_path))
 
         self.configure_plugins()
@@ -1766,15 +1872,21 @@ class GraphControl(CmdControl):
             "--force", action="store_true",
             help=("Force an action that otherwise defaults to a dry run"))
         self._pre_objects(parser)
-        parser.add_argument(
-            "obj", nargs="*", type=GraphArg(self.cmd_type()),
-            help="Objects to be processed in the form <Class>:<Id>")
+        self._objects(parser)
 
     def _pre_objects(self, parser):
         """
         Allows configuring before the "obj" n-argument is added.
         """
         pass
+
+    def _objects(self, parser):
+        """
+        Allows configuring the "obj" n-argument by overriding this method.
+        """
+        parser.add_argument(
+            "obj", nargs="*", type=GraphArg(self.cmd_type()),
+            help="Objects to be processed in the form <Class>:<Id>")
 
     def as_doall(self, req_or_doall):
         if not isinstance(req_or_doall, omero.cmd.DoAll):

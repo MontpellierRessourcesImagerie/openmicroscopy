@@ -671,7 +671,14 @@ class BlitzObjectWrapper (object):
         group. Web client will only allow this for the data Owner. Admin CAN
         move other user's data, but we don't support this in Web yet.
         """
-        return self.isOwned() or self._conn.isAdmin()   # See #8974
+        return self.getDetails().getPermissions().canChgrp()
+
+    def canChown(self):
+        """
+        Specifies whether the current user can give this object to another
+        user. Web client does not yet support this.
+        """
+        return self.getDetails().getPermissions().canChown()
 
     def countChildren(self):
         """
@@ -2263,6 +2270,51 @@ class _BlitzGateway (object):
         group = admin_service.getGroup(self.getEventContext().groupId)
         return ExperimenterGroupWrapper(self, group)
 
+    def getCurrentAdminPrivileges(self):
+        """
+        Returns list of Admin Privileges for the current session.
+
+        :return:    List of strings such as ["ModifyUser", "ModifyGroup"]
+        """
+        privileges = self.getAdminService().getCurrentAdminPrivileges()
+        return [unwrap(p.getValue()) for p in privileges]
+
+    def getAdminPrivileges(self, user_id):
+        """
+        Returns list of Admin Privileges for the specified user.
+
+        :return:    List of strings such as ["ModifyUser", "ModifyGroup"]
+        """
+        privileges = self.getAdminService().getAdminPrivileges(
+            omero.model.ExperimenterI(user_id, False))
+        return [unwrap(p.getValue()) for p in privileges]
+
+    def updateAdminPrivileges(self, exp_id, add=[], remove=[]):
+        """
+        Update the experimenter's Admin Priviledges, adding and removing.
+
+        :param exp_id:  ID of experimenter to update
+        :param add:     List of strings
+        :param remove:  List of strings
+        """
+        admin = self.getAdminService()
+        exp = omero.model.ExperimenterI(exp_id, False)
+
+        privileges = set(self.getAdminPrivileges(exp_id))
+
+        # Add via union
+        privileges = privileges.union(set(add))
+        # Remove via difference
+        privileges = privileges.difference(set(remove))
+
+        to_set = []
+        for p in list(privileges):
+            privilege = omero.model.AdminPrivilegeI()
+            privilege.setValue(rstring(p))
+            to_set.append(privilege)
+
+        admin.setAdminPrivileges(exp, to_set)
+
     def isAdmin(self):
         """
         Checks if a user has administration privileges.
@@ -2271,6 +2323,19 @@ class _BlitzGateway (object):
         """
 
         return self.getEventContext().isAdmin
+
+    def isFullAdmin(self):
+        """
+        Checks if a user has full administration privileges.
+
+        :return:    Boolean
+        """
+
+        if self.getEventContext().isAdmin:
+            allPrivs = list(self.getEnumerationEntries('AdminPrivilege'))
+            return len(allPrivs) == len(self.getCurrentAdminPrivileges())
+
+        return False
 
     def isLeader(self, gid=None):
         """
@@ -3823,9 +3888,15 @@ class _BlitzGateway (object):
         :param fileSize:                The file size
         :param mimetype:                The mimetype of the file. String.
                                         E.g. 'text/plain'
-        :param ns:                      The file namespace
+        :param ns:                      Deprecated in 5.4.0. This is ignored
         :return:                        New :class:`OriginalFileWrapper`
         """
+        if ns is not None:
+            warnings.warn(
+                "Deprecated in 5.4.0. The ns parameter was added in error"
+                " and has always been ignored",
+                DeprecationWarning)
+
         updateService = self.getUpdateService()
         rawFileStore = self.createRawFileStore()
 
@@ -3886,19 +3957,21 @@ class _BlitzGateway (object):
                                         OriginalFile. If None, use localPath
         :param mimetype:                The mimetype of the file. String.
                                         E.g. 'text/plain'
-        :param ns:                      The namespace of the file.
+        :param ns:                      Deprecated in 5.4.0. This is ignored
         :return:                        New :class:`OriginalFileWrapper`
         """
+        if ns is not None:
+            warnings.warn(
+                "Deprecated in 5.4.0. The ns parameter was added in error"
+                " and has always been ignored",
+                DeprecationWarning)
         if origFilePathAndName is None:
             origFilePathAndName = localPath
         path, name = os.path.split(origFilePathAndName)
         fileSize = os.path.getsize(localPath)
-        fileHandle = open(localPath, 'rb')
-        try:
-            return self.createOriginalFileFromFileObj(
-                fileHandle, path, name, fileSize, mimetype, ns)
-        finally:
-            fileHandle.close()
+        with open(localPath, 'rb') as fileHandle:
+            return self.createOriginalFileFromFileObj(fileHandle, path, name,
+                                                      fileSize, mimetype)
 
     def createFileAnnfromLocalFile(self, localPath, origFilePathAndName=None,
                                    mimetype=None, ns=None, desc=None):
@@ -3923,7 +3996,7 @@ class _BlitzGateway (object):
 
         # create and upload original file
         originalFile = self.createOriginalFileFromLocalFile(
-            localPath, origFilePathAndName, mimetype, ns)
+            localPath, origFilePathAndName, mimetype)
 
         # create FileAnnotation, set ns & description and return wrapped obj
         fa = omero.model.FileAnnotationI()
@@ -7354,17 +7427,20 @@ class _ChannelWrapper (BlitzObjectWrapper):
         if si is None:
             logger.info("getStatsInfo() is null. See #9695")
             try:
-                minVals = {PixelsTypeint8: -128,
-                           PixelsTypeuint8: 0,
-                           PixelsTypeint16: -32768,
-                           PixelsTypeuint16: 0,
-                           PixelsTypeint32: -32768,
-                           PixelsTypeuint32: 0,
-                           PixelsTypefloat: -32768,
-                           PixelsTypedouble: -32768}
-                pixtype = self._obj.getPixels(
-                    ).getPixelsType().getValue().getValue()
-                return minVals[pixtype]
+                if self._re is not None:
+                    return self._re.getPixelsTypeLowerBound(0)
+                else:
+                    minVals = {PixelsTypeint8: -128,
+                               PixelsTypeuint8: 0,
+                               PixelsTypeint16: -32768,
+                               PixelsTypeuint16: 0,
+                               PixelsTypeint32: -2147483648,
+                               PixelsTypeuint32: 0,
+                               PixelsTypefloat: -2147483648,
+                               PixelsTypedouble: -2147483648}
+                    pixtype = self._obj.getPixels(
+                        ).getPixelsType().getValue().getValue()
+                    return minVals[pixtype]
             except:     # Just in case we don't support pixType above
                 return None
         return si.getGlobalMin().val
@@ -7380,22 +7456,30 @@ class _ChannelWrapper (BlitzObjectWrapper):
         if si is None:
             logger.info("getStatsInfo() is null. See #9695")
             try:
-                maxVals = {PixelsTypeint8: 127,
-                           PixelsTypeuint8: 255,
-                           PixelsTypeint16: 32767,
-                           PixelsTypeuint16: 65535,
-                           PixelsTypeint32: 32767,
-                           PixelsTypeuint32: 65535,
-                           PixelsTypefloat: 32767,
-                           PixelsTypedouble: 32767}
-                pixtype = self._obj.getPixels(
-                    ).getPixelsType().getValue().getValue()
-                return maxVals[pixtype]
+                if self._re is not None:
+                    return self._re.getPixelsTypeUpperBound(0)
+                else:
+                    maxVals = {PixelsTypeint8: 127,
+                               PixelsTypeuint8: 255,
+                               PixelsTypeint16: 32767,
+                               PixelsTypeuint16: 65535,
+                               PixelsTypeint32: 2147483647,
+                               PixelsTypeuint32: 4294967295,
+                               PixelsTypefloat: 2147483647,
+                               PixelsTypedouble: 2147483647}
+                    pixtype = self._obj.getPixels(
+                        ).getPixelsType().getValue().getValue()
+                    return maxVals[pixtype]
             except:     # Just in case we don't support pixType above
                 return None
         return si.getGlobalMax().val
 
     def isReverseIntensity(self):
+        """Deprecated in 5.4.0. Use isInverted()."""
+        warnings.warn("Deprecated. Use isInverted()", DeprecationWarning)
+        return self.isInverted()
+
+    def isInverted(self):
         """
         Returns True if this channel has ReverseIntensityContext
         set on it.
@@ -7411,6 +7495,34 @@ class _ChannelWrapper (BlitzObjectWrapper):
             if isinstance(c, omero.model.ReverseIntensityContext):
                 reverse = True
         return reverse
+
+    def getFamily(self):
+        """
+        Returns the channel family
+
+        :return:    the channel family
+        :rtype:     String
+        """
+        if self._re is None:
+            return None
+
+        f = self._re.getChannelFamily(self._idx)
+        if f is None:
+            return f
+
+        return f.getValue()
+
+    def getCoefficient(self):
+        """
+        Returns the channel coefficient
+
+        :return:    the channel coefficient
+        :rtype:     float
+        """
+        if self._re is None:
+            return None
+
+        return self._re.getChannelCurveCoefficient(self._idx)
 
 ChannelWrapper = _ChannelWrapper
 
@@ -7487,6 +7599,7 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
     _re = None
     _pd = None
     _rm = {}
+    _qf = {}
     _pixels = None
     _archivedFileCount = None
     _filesetFileCount = None
@@ -8178,16 +8291,6 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
             rp.close()
 
     @assert_pixels
-    def requiresPixelsPyramid(self):
-        pixels_id = self._obj.getPrimaryPixels().getId().val
-        rp = self._conn.createRawPixelsStore()
-        try:
-            rp.setPixelsId(pixels_id, True, self._conn.SERVICE_OPTS)
-            return rp.requiresPixelsPyramid()
-        finally:
-            rp.close()
-
-    @assert_pixels
     def getPrimaryPixels(self):
         """
         Loads pixels and returns object in a :class:`PixelsWrapper`
@@ -8308,7 +8411,7 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
         return rv
 
     def setActiveChannels(self, channels, windows=None, colors=None,
-                          reverseMaps=None):
+                          invertMaps=None, reverseMaps=None):
         """
         Sets the active channels on the rendering engine.
         Also sets rendering windows and channel colors
@@ -8332,17 +8435,24 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
                             Must be list for each channel
         :param colors:      List of colors. ['F00', None, '00FF00'].
                             Must be item for each channel
-        :param reverseMaps: List of boolean (or None). If True/False then
+        :param invertMaps:  List of boolean (or None). If True/False then
                             set/remove reverseIntensityMap on channel
         """
+        if reverseMaps is not None:
+            warnings.warn(
+                "setActiveChannels() reverseMaps parameter"
+                "deprecated in OMERO 5.4.0. Use invertMaps",
+                DeprecationWarning)
+            if invertMaps is None:
+                invertMaps = reverseMaps
         abs_channels = [abs(c) for c in channels]
         idx = 0     # index of windows/colors args above
         for c in range(len(self.getChannels())):
             self._re.setActive(c, (c+1) in channels, self._conn.SERVICE_OPTS)
             if (c+1) in channels:
-                if (reverseMaps is not None and
-                        reverseMaps[idx] is not None):
-                    self.setReverseIntensity(c, reverseMaps[idx])
+                if (invertMaps is not None and
+                        invertMaps[idx] is not None):
+                    self.setReverseIntensity(c, invertMaps[idx])
                 if (windows is not None and
                         windows[idx][0] is not None and
                         windows[idx][1] is not None):
@@ -8622,21 +8732,90 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
 
     @assert_re()
     def setReverseIntensity(self, channelIndex, reverse=True):
+        """Deprecated in 5.4.0. Use setChannelInverted()."""
+        warnings.warn("Deprecated in 5.4.0. Use setChannelInverted()",
+                      DeprecationWarning)
+        self.setChannelInverted(channelIndex, reverse)
+
+    @assert_re()
+    def setChannelInverted(self, channelIndex, inverted=True):
         """
         Sets or removes a ReverseIntensityMapContext from the
         specified channel. If set, the intensity of the channel
-        is mapped in reverse: brightest -> darkest.
+        is inverted: brightest -> darkest.
 
         :param channelIndex:    The index of channel (int)
-        :param reverse:         If True, set reverse intensity (boolean)
+        :param inverted:        If True, set inverted (boolean)
         """
         r = omero.romio.ReverseIntensityMapContext()
         # Always remove map from channel
         # (doesn't throw exception, even if not on channel)
         self._re.removeCodomainMapFromChannel(r, channelIndex)
-        # If we want to reverse, add it to the channel (again)
-        if reverse:
+        # If we want to invert, add it to the channel (again)
+        if inverted:
             self._re.addCodomainMapToChannel(r, channelIndex)
+
+    @assert_re()
+    def getFamilies(self):
+        """
+        Gets a dict of available families.
+
+        :return:    Families
+        :rtype:     Dict
+        """
+        if not len(self._qf):
+            for f in [BlitzObjectWrapper(self._conn, f)
+                      for f in self._re.getAvailableFamilies()]:
+                self._qf[f.value.lower()] = f
+        return self._qf
+
+    @assert_re()
+    def setQuantizationMap(self, channelIndex, family, coefficient):
+        """
+        Sets the quantization strategy to the given family
+        and coefficient
+
+        :param channelIndex:    The index of channel (int)
+        :param family:          The family (string)
+        :param coefficient:     The coefficient (float)
+        """
+        if channelIndex < 0 or channelIndex >= self.getSizeC():
+            return
+
+        families = self.getFamilies()
+        f = families.get("linear")
+        try:
+            f = families.get(family.lower(), f)
+        except:
+            pass
+
+        c = 1.0
+        try:
+            c = float(coefficient)
+            if c < 0 or c > 1.0:
+                c = 1.0
+        except:
+            pass
+
+        self._re.setQuantizationMap(channelIndex, f._obj, c, False)
+
+    @assert_re()
+    def setQuantizationMaps(self, maps):
+        """
+        Sets the quantization strategy using the given list
+        of mapping information (for each entry, i.e. channel)
+        e.g. [{'family': 'linear', coefficient: 1.0}]
+
+        :param maps:     list of quantization settings
+        """
+        if not isinstance(maps, list):
+            return
+
+        for i, m in enumerate(maps):
+            if isinstance(m, dict):
+                family = m.get('family', None)
+                coefficient = m.get('coefficient', 1.0)
+                self.setQuantizationMap(i, family, coefficient)
 
     @assert_re(ignoreExceptions=(omero.ConcurrencyException))
     def getRenderingDefId(self):
@@ -8693,6 +8872,8 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
                     'start': w.getInputStart().val,
                     'end': w.getInputEnd().val,
                     'color': color.getHtml(),
+                    # 'reverseIntensity' is deprecated. Use 'inverted'
+                    'inverted': reverse,
                     'reverseIntensity': reverse,
                     'rgb': {'red': w.getRed().val,
                             'green': w.getGreen().val,
@@ -9502,6 +9683,11 @@ class _ImageWrapper (BlitzObjectWrapper, OmeroRestrictionWrapper):
         """
 
         return self._obj.getPrimaryPixels().getSizeC().val
+
+    def requiresPixelsPyramid(self):
+        """Returns True if Image Plane is over the max plane size."""
+        max_sizes = self._conn.getMaxPlaneSize()
+        return self.getSizeX() * self.getSizeY() > max_sizes[0] * max_sizes[1]
 
     def clearDefaults(self):
         """

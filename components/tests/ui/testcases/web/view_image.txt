@@ -10,10 +10,16 @@ Library           Collections
 Suite Setup         Run Keywords  User "${USERNAME}" logs in with password "${PASSWORD}"  Maximize Browser Window
 Suite Teardown      Close all browsers
 
+
+*** Variables ***
+# robot_setup script has created data with these parameters
+${PLATE_NAME}               spwTests
+
+
 *** Keywords ***
 
 Check Image Viewer
-    [Arguments]                         ${title}
+    [Arguments]                         ${title}    ${datasetId}
     # Wait untill popup windows is fully initialiazed
     # Image Viewer title is the image name.
     Wait Until Keyword Succeeds  ${TIMEOUT}     ${INTERVAL}     Select Window   title=${title}
@@ -21,6 +27,7 @@ Check Image Viewer
     Wait Until Page Contains Element    xpath=//img[@id='weblitz-viewport-img']     ${WAIT}
     ${titles}=                          Get Window Titles
     List Should Contain Value           ${titles}               ${title}
+    Location Should Contain             dataset=${datasetId}
     # Should have 2 windows open
     ${windowIds}=                       Get Window Identifiers
     Length Should Be                    ${windowIds}            2
@@ -42,24 +49,24 @@ Test Open Viewer
     [Documentation]     Tests double-click to open image viewer
 
     Tree Should Be Visible
-    ${imageId}=                         Select And Expand Image
+    ${pId}    ${dId}    ${imageId}      Select And Expand Project Dataset Image
     ${nodeId}=                          Wait For Image Node         ${imageId}
     ${imageName}=                       Wait For General Panel And Return Name      Image
     # Open Image Viewer 3 different ways and check
-    Click Element                       xpath=//a[@title='Open full image viewer in new window']
-    Check Image Viewer                  ${imageName}
+    Click Element                       xpath=//a[@title='Open full image viewer in new tab']
+    Check Image Viewer                  ${imageName}                ${dId}
     Double Click Element                xpath=//li[@id='image_icon-${imageId}']//img
-    Check Image Viewer                  ${imageName}
+    Check Image Viewer                  ${imageName}                ${dId}
     Double Click Element                css=#${nodeId}>a
-    Check Image Viewer                  ${imageName}
+    Check Image Viewer                  ${imageName}                ${dId}
     # Open with... from right panel
     Click Element                       xpath=//button[contains(@class, 'btn_openwith')]
     Wait Until Element Is Visible       xpath=//a[@title='Open image with Image viewer']
     Click Element                       xpath=//a[@title='Open image with Image viewer']
-    Check Image Viewer                  ${imageName}
+    Check Image Viewer                  ${imageName}                ${dId}
     # And jsTree
     Right Click Open With               ${nodeId}      Image viewer
-    Check Image Viewer                  ${imageName}
+    Check Image Viewer                  ${imageName}                ${dId}
 
 
 Test Prev Next Buttons
@@ -82,3 +89,30 @@ Test Prev Next Buttons
     # Clicking Next button will enable Prev button
     Click Element                       id=nextImage
     Wait Until Page Contains Element    xpath=//button[@id='prevImage' and not (@disabled='disabled')]
+    # Close Popup window for next test
+    Close Window
+    # Select parent window
+    Select Window
+
+
+Test Bulk Annotations
+    [Documentation]     Test display of bulk annotations in viewer (tested in main webclient in spw_test.txt)
+
+    Select Experimenter
+    Select First Plate With Name        ${PLATE_NAME}
+    Select First Run
+    Click Well By Name                  A1
+
+    # Select Image to get Name
+    Wait Until Page Contains Element    xpath=//div[@id='wellImages']//li/a/img[1]
+    Click Element                       xpath=//div[@id='wellImages']//li/a/img[1]
+    ${imgName}=                         Wait For General Panel And Return Name          Image
+
+    Double Click Well By Name           A1
+    Wait Until Keyword Succeeds         ${TIMEOUT}     ${INTERVAL}     Select Window   title=${imgName}
+
+    Click Link                          Image Information
+    Wait Until Element Is Visible       id=bulk-annotations
+    Page Should Contain                 Well Type
+    Page Should Contain                 Control
+    Page Should Contain                 Concentration

@@ -1,6 +1,4 @@
 /*
- *   $Id$
- *
  *   Copyright 2009 Glencoe Software, Inc. All rights reserved.
  *   Use is subject to license terms supplied in LICENSE.txt
  */
@@ -48,6 +46,7 @@ import omero.api.AMD_IRoi_getRoiMeasurements;
 import omero.api.AMD_IRoi_getRoiStats;
 import omero.api.AMD_IRoi_getShapeStats;
 import omero.api.AMD_IRoi_getShapeStatsList;
+import omero.api.AMD_IRoi_getShapeStatsRestricted;
 import omero.api.AMD_IRoi_getTable;
 import omero.api.AMD_IRoi_uploadMask;
 import omero.api.RoiOptions;
@@ -244,6 +243,26 @@ public class RoiI extends AbstractAmdServant implements _IRoiOperations,
         }));
     }
 
+    public void getShapeStatsRestricted_async(AMD_IRoi_getShapeStatsRestricted __cb,
+        final List<Long> shapeIdList, final int zForUnattached, final int tForUnattached,
+        final int[] channels, Current __current) throws ServerError {
+
+        final IceMapper mapper = new IceMapper(IceMapper.UNMAPPED);
+
+        runnableCall(__current, new Adapter(__cb, __current, mapper, factory
+                .getExecutor(), factory.principal, new SimpleWork(this,
+                "getShapeStatsRestricted", 
+                shapeIdList, zForUnattached, tForUnattached, channels) {
+
+            @Transactional(readOnly = true)
+            public Object doWork(Session session, ServiceFactory sf) {
+                return
+                    geomTool.getStatsRestricted(
+                        shapeIdList, zForUnattached, tForUnattached, channels);
+            }
+        }));
+    }
+
     // Measurement results.
     // =========================================================================
 
@@ -364,15 +383,16 @@ public class RoiI extends AbstractAmdServant implements _IRoiOperations,
                     throw new ome.conditions.ApiUsageException("No such file annotation: " + annotationId);
                 }
 
-                try {
-                    return factory.sharedResources(__current).openTable(
-                            new OriginalFileI(file.getId(), false));
-                } catch (ServerError e) {
-                    throw new RuntimeException(e);
-                }
+                return file.getId();
 
             }
-        }));
+        }) {
+            /* transforms the file annotation ID to a handle to an open table */
+            @Override
+            protected Object postProcess(Object rv) throws ServerError {
+                return factory.sharedResources(__current).openTable(new OriginalFileI((Long) rv, false));
+            }
+        });
     }
 
     class MaskClass

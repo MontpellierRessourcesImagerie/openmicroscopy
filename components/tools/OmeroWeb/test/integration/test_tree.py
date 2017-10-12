@@ -125,11 +125,12 @@ def get_perms(user, obj, dtype):
         perms.append('canLink')
     if permissions.canDelete():
         perms.append('canDelete')
+    if permissions.canChgrp():
+        perms.append('canChgrp')
+    if permissions.canChown():
+        perms.append('canChown')
     if obj.details.owner.id.val == user[1].id.val:
         perms.append('isOwned')
-    # TODO Add chgrp permission to an admin user
-    if obj.details.owner.id.val == user[1].id.val:
-        perms.append('canChgrp')
 
     return ' '.join(perms)
 
@@ -1852,8 +1853,13 @@ class TestTree(ITest):
         """
         conn = get_connection(userA)
         expected = expected_images(userA, images)
-        marshaled = marshal_images(conn=conn,
-                                   group_id=-1)
+        all_images = marshal_images(conn=conn,
+                                    group_id=-1)
+        # Need to check that all expected are in marshalled
+        # BUT - marshalled may contain other images from 'user' group
+        assert len(all_images) >= len(expected)
+        iids = [i['id'] for i in expected]
+        marshaled = [i for i in all_images if i['id'] in iids]
         assert marshaled == expected
 
     def test_marshal_images_dataset(self, userA,

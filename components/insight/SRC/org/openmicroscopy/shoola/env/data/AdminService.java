@@ -71,7 +71,7 @@ public interface AdminService
      * @param oldPassword The password used to log in.
      * @param newPassword The new password.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service. 
      */
@@ -86,7 +86,7 @@ public interface AdminService
      * @param exp The experimenter to update.
      * @param group The group the user is member of.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service. 
      */
@@ -100,7 +100,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param group The group to update.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service. 
      */
@@ -114,7 +114,7 @@ public interface AdminService
      * @param group The group to update.
      * @param permissions The desired permissions level
      * @param adapter The adapter to handle the result
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -127,7 +127,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param group The group to load.
      * @return See above
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -141,7 +141,7 @@ public interface AdminService
      * @param exp The experimenter to handle.
      * @param groupID The identifier group the user is member of.
      * @return The updated user.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service.
      */
@@ -156,7 +156,7 @@ public interface AdminService
      * @param object The object hosting information about the experimenters
      * to create.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service. 
      */
@@ -170,7 +170,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param object The object hosting information about the group to create.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service. 
      */
@@ -264,7 +264,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param experimenters The experimenters to delete.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in.
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in.
      * @throws DSAccessException If an error occurred while trying to 
      *                           retrieve data from OMEDS service.
      */
@@ -295,7 +295,7 @@ public interface AdminService
      * @param group The group to add the experimenters to.
      * @param experimenters The experimenters to add.
      * @return See above
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service. 
      */
@@ -310,7 +310,7 @@ public interface AdminService
      * @param toPaste The nodes to paste.
      * @param toRemove The nodes to remove.
      * @return See above
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service. 
      */
@@ -326,7 +326,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param ids The group identifiers.
      * @return See above
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service.
      */
@@ -342,7 +342,7 @@ public interface AdminService
      * @param group The default group.
      * @param experimenters The experimenters to update.
      * @return See above
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -357,7 +357,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param object The object to handle.
      * @return See above
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -371,7 +371,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param object The object to handle.
      * @return See above
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -385,7 +385,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param exp The owner of a group.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -400,7 +400,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param name The name of the group.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -414,7 +414,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param name The name of the experimenter.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -430,7 +430,7 @@ public interface AdminService
      * @param format The format of the file.
      * @param experimenter The experimenter to handle.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -445,7 +445,7 @@ public interface AdminService
      * @param type The node
      * @param id The node's id.
      * @return See above.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to
      * retrieve data from OMERO service.
      */
@@ -458,7 +458,7 @@ public interface AdminService
      * @param ctx The security context.
      * @param group The group to add the experimenters to.
      * @param experimenters The experimenters to add.
-     * @throws DSOutOfServiceException If the connection is broken, or logged in
+     * @throws DSOutOfServiceException If the connection is broken, or not logged in
      * @throws DSAccessException If an error occurred while trying to 
      * retrieve data from OMERO service.
      */

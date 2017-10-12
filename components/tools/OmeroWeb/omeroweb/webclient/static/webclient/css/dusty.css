@@ -563,6 +563,7 @@ button::-moz-focus-inner {
 			font-size:1.2em;
 			text-shadow: 0 1px 0 white;
 			vertical-align: top;
+			margin-top: 3px;
 		}
 		
 		.standard_form input, .standard_form select, .standard_form textarea {
@@ -601,7 +602,7 @@ button::-moz-focus-inner {
 	.standard_form input[type="submit"] {
 		cursor: pointer;
 		float:right;
-		margin-right:2px;
+		margin: 0;
 		display:block;
 		background-color:hsl(210,50%,60%);
 		background-image: -webkit-gradient(linear, left bottom, left top, from(hsl(210,40%,60%)), to(hsl(210,40%,70%)));
@@ -633,6 +634,10 @@ button::-moz-focus-inner {
 		text-shadow: 0 1px 0 rgba(255,255,255,.3);
 		border-radius:3px;
 		font-family: Helvetica, Arial;
+	}
+
+	.standard_form input[type="submit"]:disabled {
+		opacity: 0.5;
 	}
 			
 			
@@ -862,11 +867,6 @@ button::-moz-focus-inner {
 		font-weight:bold;
 	}
 
-	.ui-dialog p, .ui-dialog span {
-		display:inline-block;
-		/*font-size:1.2em;*/
-	}
-
 	
 		.ui-dialog .ui-dialog-titlebar-close span { 
 			display: block; 
@@ -940,7 +940,10 @@ button::-moz-focus-inner {
 		
 
 
-
+	.new_pds_owner_icon {
+		width: 16px;
+		height: 16px;
+	}
 
 
 
